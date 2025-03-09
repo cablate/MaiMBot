@@ -1,3 +1,7 @@
+本分支的 main base 版本：
+Commit: e304dd7e5cf2ca131ccfd47dba14fee221fc1e9c
+Sun Mar 09 2025 10:36:19 GMT+0800 (台北標準時間)
+
 由於程式原架構多平台兼容不易，本專案已經高度修改成與 QQ 平台不相容！
 
 未來也不會再合併任何 SengokuCola/MaiMBot 的改動，因為程式碼無法相容！
