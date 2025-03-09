@@ -7,6 +7,7 @@ from typing import Optional
 
 from loguru import logger
 from nonebot import get_driver
+from nonebot.adapters.telegram import MessageSegment as TelegramMessageSegment
 
 from ...common.database import Database
 from ..chat.config import global_config
@@ -93,80 +94,103 @@ class EmojiManager:
         Args:
             text: 输入文本
         Returns:
-            Optional[str]: 表情包文件路径，如果没有找到则返回None
-            
-        
-        可不可以通过 配置文件中的指令 来自定义使用表情包的逻辑？
-        我觉得可行    
-
+            Optional[Tuple[str, str]]: 表情包文件路徑和描述，如果沒有找到則返回None
         """
         try:
+            if isinstance(text, list):
+                text = ' '.join(text)
+                
             self._ensure_db()
+            emoji_data = await self._get_related_emoji(text)
             
-            # 获取文本的embedding
-            text_for_search= await self._get_kimoji_for_text(text)
-            if not text_for_search:
-                logger.error("无法获取文本的情绪")
-                return None
-            text_embedding = await get_embedding(text_for_search)
-            if not text_embedding:
-                logger.error("无法获取文本的embedding")
-                return None
-            
-            try:
-                # 获取所有表情包
-                all_emojis = list(self.db.db.emoji.find({}, {'_id': 1, 'path': 1, 'embedding': 1, 'discription': 1}))
+            if emoji_data:
+                emoji_path = os.path.join(self.EMOJI_DIR, emoji_data['filename'])
+                emoji_desc = emoji_data.get('description', '一個表情包')
                 
-                if not all_emojis:
-                    logger.warning("数据库中没有任何表情包")
+                # 檢查文件是否存在
+                if not os.path.exists(emoji_path):
+                    logger.warning(f"表情包文件不存在: {emoji_path}")
                     return None
-                
-                # 计算余弦相似度并排序
-                def cosine_similarity(v1, v2):
-                    if not v1 or not v2:
-                        return 0
-                    dot_product = sum(a * b for a, b in zip(v1, v2))
-                    norm_v1 = sum(a * a for a in v1) ** 0.5
-                    norm_v2 = sum(b * b for b in v2) ** 0.5
-                    if norm_v1 == 0 or norm_v2 == 0:
-                        return 0
-                    return dot_product / (norm_v1 * norm_v2)
-                
-                # 计算所有表情包与输入文本的相似度
-                emoji_similarities = [
-                    (emoji, cosine_similarity(text_embedding, emoji.get('embedding', [])))
-                    for emoji in all_emojis
-                ]
-                
-                # 按相似度降序排序
-                emoji_similarities.sort(key=lambda x: x[1], reverse=True)
-                
-                # 获取前3个最相似的表情包
-                top_3_emojis = emoji_similarities[:3]
-                
-                if not top_3_emojis:
-                    logger.warning("未找到匹配的表情包")
-                    return None
-                
-                # 从前3个中随机选择一个
-                selected_emoji, similarity = random.choice(top_3_emojis)
-                
-                if selected_emoji and 'path' in selected_emoji:
-                    # 更新使用次数
-                    self.db.db.emoji.update_one(
-                        {'_id': selected_emoji['_id']},
-                        {'$inc': {'usage_count': 1}}
-                    )
-                    logger.success(f"找到匹配的表情包: {selected_emoji.get('discription', '无描述')} (相似度: {similarity:.4f})")
-                    # 稍微改一下文本描述，不然容易产生幻觉，描述已经包含 表情包 了
-                    return selected_emoji['path'],"[ %s ]" % selected_emoji.get('discription', '无描述')
                     
-            except Exception as search_error:
-                logger.error(f"搜索表情包失败: {str(search_error)}")
+                self.record_usage(emoji_data['_id'])
+                return emoji_path, emoji_desc
+            else:
+                logger.debug("未找到相關表情包")
                 return None
-            
+        except Exception as e:
+            logger.error(f"獲取表情包時出錯: {traceback.format_exc()}")
+            return None
+    
+    async def _get_related_emoji(self, text: str):
+        """獲取與文本相關的表情包"""
+        embedding = await get_embedding(text)
+        if not embedding:
             return None
             
+        # 使用餘弦相似度搜索
+        pipeline = [
+            {
+                "$addFields": {
+                    "similarity": {
+                        "$function": {
+                            "body": """
+                            function(a, b) {
+                                var dotProduct = 0;
+                                var normA = 0;
+                                var normB = 0;
+                                for (var i = 0; i < a.length; i++) {
+                                    dotProduct += a[i] * b[i];
+                                    normA += a[i] * a[i];
+                                    normB += b[i] * b[i];
+                                }
+                                return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+                            }
+                            """,
+                            "args": ["$embedding", embedding],
+                            "lang": "js"
+                        }
+                    }
+                }
+            },
+            {"$match": {"similarity": {"$gt": 0.4}}},
+            {"$sort": {"similarity": -1}},
+            {"$limit": 5}
+        ]
+        
+        results = list(self.db.db.emoji.aggregate(pipeline))
+        
+        if not results:
+            return None
+            
+        # 按照相似度加權隨機選擇
+        weights = [result['similarity'] for result in results]
+        total_weight = sum(weights)
+        
+        if total_weight == 0:
+            return random.choice(results)
+            
+        # 歸一化權重
+        norm_weights = [w/total_weight for w in weights]
+        
+        # 加權隨機選擇
+        selected_emoji = random.choices(results, weights=norm_weights, k=1)[0]
+        
+        return selected_emoji
+
+    async def create_telegram_emoji_msgment(self, text: str) -> Optional[TelegramMessageSegment]:
+        """創建Telegram表情包消息段"""
+        emoji_data = await self.get_emoji_for_text(text)
+        
+        if not emoji_data:
+            return None
+            
+        emoji_path, emoji_desc = emoji_data
+        
+        # 創建Telegram圖片消息段
+        # 使用open()讀取文件為二進制
+        try:
+            with open(emoji_path, 'rb') as f:
+                return TelegramMessageSegment.photo(f)
         except Exception as e:
             logger.error(f"获取表情包失败: {str(e)}")
             return None

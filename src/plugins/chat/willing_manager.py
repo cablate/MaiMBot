@@ -25,7 +25,11 @@ class WillingManager:
         
     def change_reply_willing_received(self, group_id: int, topic: str, is_mentioned_bot: bool, config, user_id: int = None, is_emoji: bool = False, interested_rate: float = 0) -> float:
         """改变指定群组的回复意愿并返回回复概率"""
+        print(f"当前意愿: {self.group_reply_willing.get(group_id, 0)}")
         current_willing = self.group_reply_willing.get(group_id, 0)
+        # if current_willing < 0.5:
+        #     print(f"当前意愿小于0.5, 设置为0.5")
+        #     current_willing = 0.5
         
         # print(f"初始意愿: {current_willing}")
         if is_mentioned_bot and current_willing < 1.0:
@@ -39,6 +43,7 @@ class WillingManager:
             current_willing *= 0.1
             print(f"表情包, 当前意愿: {current_willing}")
         
+        print(f"兴趣度: {interested_rate}")
         print(f"放大系数_interested_rate: {global_config.response_interested_rate_amplifier}")
         interested_rate *= global_config.response_interested_rate_amplifier #放大回复兴趣度
         if interested_rate > 0.4:

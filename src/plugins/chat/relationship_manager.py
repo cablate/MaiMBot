@@ -62,6 +62,7 @@ class RelationshipManager:
                         setattr(relationship, key, value)
         else:
             # 如果不存在，创建新对象
+            print(f"\033[1;32m[关系管理]\033[0m 用户 {user_id} 不存在，创建新对象")
             relationship = Relationship(user_id, data=data) if isinstance(data, dict) else Relationship(user_id, **kwargs)
             self.relationships[user_id] = relationship
 
@@ -83,10 +84,21 @@ class RelationshipManager:
                     relationship.relationship_value += value
             await self.storage_relationship(relationship)
             relationship.saved = True
+            print(f"\033[1;32m[关系管理]\033[0m 用户 {user_id} 关系已更新")
             return relationship
         else:
             print(f"\033[1;31m[关系管理]\033[0m 用户 {user_id} 不存在，无法更新")
-            return None
+            print(f"\033[1;31m[关系管理]\033[0m 用户 {user_id} 创建新对象")
+            # 创建新对象
+            try:
+                relationship = Relationship(user_id, **kwargs)
+                self.relationships[user_id] = relationship
+                await self.storage_relationship(relationship)
+                relationship.saved = True
+                return relationship
+            except Exception as e:
+                print(f"\033[1;31m[关系管理]\033[0m 用户 {user_id} 创建新对象失败: {e}")
+                return None
     
     
     def get_relationship(self, user_id: int) -> Optional[Relationship]:

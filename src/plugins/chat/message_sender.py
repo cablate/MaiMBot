@@ -2,7 +2,8 @@ import asyncio
 import time
 from typing import Dict, List, Optional, Union
 
-from nonebot.adapters.onebot.v11 import Bot
+from nonebot.adapters import Bot as BaseBot
+from nonebot.adapters.telegram import Bot as TelegramBot
 
 from .cq_code import cq_code_tool
 from .message import Message, Message_Sending, Message_Thinking, MessageSet
@@ -18,7 +19,7 @@ class Message_Sender:
         self.last_send_time = 0
         self._current_bot = None
         
-    def set_bot(self, bot: Bot):
+    def set_bot(self, bot: BaseBot):
         """设置当前bot实例"""
         self._current_bot = bot
         
@@ -36,33 +37,98 @@ class Message_Sender:
             
         message = send_text
         
-        # 如果需要回复
-        if reply_message_id:
-            reply_cq = cq_code_tool.create_reply_cq(reply_message_id)
-            message = reply_cq + message
-            
-        # 如果需要at
-        # if at_user_id:
-        #     at_cq = cq_code_tool.create_at_cq(at_user_id)
-        #     message = at_cq + " " + message
-        
-        
+        # 模擬打字時間
         typing_time = calculate_typing_time(message)
         if typing_time > 10:
             typing_time = 10
         await asyncio.sleep(typing_time)
         
-        # 发送消息
-        try:
-            await self._current_bot.send_group_msg(
+        # 根据不同的平台发送消息
+        if isinstance(self._current_bot, TelegramBot):
+            await self._send_telegram_message(
                 group_id=group_id,
                 message=message,
-                auto_escape=auto_escape
+                reply_to_message_id=reply_message_id
             )
-            print(f"\033[1;34m[调试]\033[0m 发送消息{message}成功")
+        else:
+            # 原有的OneBot逻辑作为后备
+            try:
+                # 如果需要回复
+                if reply_message_id:
+                    reply_cq = cq_code_tool.create_reply_cq(reply_message_id)
+                    message = reply_cq + message
+                
+                await self._current_bot.send_group_msg(
+                    group_id=group_id,
+                    message=message,
+                    auto_escape=auto_escape
+                )
+                print(f"\033[1;34m[调试]\033[0m 发送消息{message}成功")
+            except Exception as e:
+                print(f"发生错误 {e}")
+                print(f"\033[1;34m[调试]\033[0m 发送消息{message}失败")
+    
+    async def _send_telegram_message(
+        self,
+        group_id: int,
+        message: str,
+        reply_to_message_id: Optional[int] = None
+    ) -> None:
+        """发送Telegram消息"""
+        try:
+            params = {
+                "chat_id": group_id,
+                "text": message
+            }
+            
+            #if reply_to_message_id:
+            #    params["reply_to_message_id"] = reply_to_message_id
+                
+            await self._current_bot.call_api("send_message", **params)
+            print(f"\033[1;34m[调试]\033[0m Telegram消息发送成功: {message}")
         except Exception as e:
-            print(f"发生错误 {e}")
+            print(f"Telegram消息发送失败: {e}")
             print(f"\033[1;34m[调试]\033[0m 发送消息{message}失败")
+            
+    async def send_telegram_photo(
+        self,
+        group_id: int,
+        photo_path: str,
+        caption: Optional[str] = None,
+        reply_to_message_id: Optional[int] = None
+    ) -> None:
+        """发送Telegram图片
+        
+        Args:
+            group_id: 群组ID
+            photo_path: 图片文件路径
+            caption: 图片说明文字
+            reply_to_message_id: 回复的消息ID
+        """
+        if not isinstance(self._current_bot, TelegramBot):
+            print(f"\033[1;33m[警告]\033[0m 当前不是Telegram机器人，无法发送图片")
+            return
+            
+        try:
+            params = {
+                "chat_id": group_id,
+            }
+            
+            # 打开图片文件
+            with open(photo_path, 'rb') as photo_file:
+                params["photo"] = photo_file
+                
+                if caption:
+                    params["caption"] = caption
+                
+                if reply_to_message_id:
+                    params["reply_to_message_id"] = reply_to_message_id
+                    
+                await self._current_bot.call_api("send_photo", **params)
+                print(f"\033[1;34m[调试]\033[0m Telegram图片发送成功")
+        except Exception as e:
+            print(f"Telegram图片发送失败: {e}")
+            print(f"\033[1;34m[調試]\033[0m 發送圖片{photo_path}失敗")
 
 
 class MessageContainer:
@@ -134,7 +200,7 @@ class MessageContainer:
 class MessageManager:
     """管理所有群的消息容器"""
     def __init__(self):
-        self.containers: Dict[int, MessageContainer] = {}
+        self.containers: Dict[str, MessageContainer] = {}
         self.storage = MessageStorage()
         self._running = True
         
@@ -145,8 +211,9 @@ class MessageManager:
         return self.containers[group_id]
         
     def add_message(self, message: Union[Message_Thinking, Message_Sending, MessageSet]) -> None:
-        container = self.get_container(message.group_id)
-        container.add_message(message)
+        """添加消息到对应群的消息容器"""
+        group_id = message.group_id if not isinstance(message, MessageSet) else message.group_id
+        self.get_container(group_id).add_message(message)
         
     async def process_group_messages(self, group_id: int):
         """处理群消息"""
@@ -170,15 +237,34 @@ class MessageManager:
                     container.remove_message(message_earliest)
             else:# 如果不是message_thinking就只能是message_sending    
                 print(f"\033[1;34m[调试]\033[0m 消息'{message_earliest.processed_plain_text}'正在发送中")
-                #直接发，等什么呢
-                if message_earliest.is_head and message_earliest.update_thinking_time() >30:
-                    await message_sender.send_group_message(group_id, message_earliest.processed_plain_text, auto_escape=False, reply_message_id=message_earliest.reply_message_id)
-                else:
-                    await message_sender.send_group_message(group_id, message_earliest.processed_plain_text, auto_escape=False)
-        #移除消息
+                # 檢查是否是表情符號消息
                 if message_earliest.is_emoji:
-                    message_earliest.processed_plain_text = "[表情包]"
-                await self.storage.store_message(message_earliest, None)
+                    # 如果平台是Telegram，使用photo API發送圖片
+                    if isinstance(message_sender._current_bot, TelegramBot) and not message_earliest.translate_cq:
+                        # 從CQ碼中提取圖片路徑
+                        import re
+                        cq_pattern = r'file=(.*?)[,\]]'
+                        match = re.search(cq_pattern, message_earliest.processed_plain_text)
+                        if match:
+                            photo_path = match.group(1)
+                            await message_sender.send_telegram_photo(
+                                group_id=group_id, 
+                                photo_path=photo_path,
+                                caption=message_earliest.detailed_plain_text if hasattr(message_earliest, 'detailed_plain_text') else None
+                            )
+                        else:
+                            print(f"無法從CQ碼提取圖片路徑: {message_earliest.processed_plain_text}")
+                    else:
+                        # 其他平台使用原方式發送
+                        await message_sender.send_group_message(group_id, message_earliest.processed_plain_text, auto_escape=False)
+                else:
+                    # 移除思考時間和是否為頭部消息的檢查
+                    await message_sender.send_group_message(
+                        group_id=group_id, 
+                        send_text=message_earliest.processed_plain_text, 
+                        auto_escape=False, 
+                        reply_message_id=message_earliest.reply_message_id if hasattr(message_earliest, 'reply_message_id') else None
+                    )
                 
                 container.remove_message(message_earliest)
             
@@ -192,8 +278,8 @@ class MessageManager:
                         
                     try:
                         #发送
-                        if msg.is_head and msg.update_thinking_time() >30:
-                            await message_sender.send_group_message(group_id, msg.processed_plain_text, auto_escape=False, reply_message_id=msg.reply_message_id)
+                        if msg.is_emoji:
+                            await message_sender.send_group_message(group_id, msg.processed_plain_text, auto_escape=False)
                         else:
                             await message_sender.send_group_message(group_id, msg.processed_plain_text, auto_escape=False)
                             

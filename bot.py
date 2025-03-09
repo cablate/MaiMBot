@@ -3,7 +3,7 @@ import os
 import nonebot
 from dotenv import load_dotenv
 from loguru import logger
-from nonebot.adapters.onebot.v11 import Adapter
+from nonebot.adapters.telegram import Adapter as TelegramAdapter
 
 '''彩蛋'''
 from colorama import Fore, init
@@ -59,9 +59,15 @@ else:
     exit(1)
 
 # 检测Key是否存在
-if not os.getenv("SILICONFLOW_KEY"):
+if not os.getenv("DEEP_SEEK_KEY") and not os.getenv("SILICONFLOW_KEY") and not os.getenv("OPENAI_API_KEY"):
     logger.error("缺失必要的API KEY")
-    logger.error(f"请至少在.env.{os.getenv('ENVIRONMENT')}文件中填写SILICONFLOW_KEY后重新启动")
+    logger.error(f"请至少在.env.{os.getenv('ENVIRONMENT')}文件中填写DEEP_SEEK_KEY、SILICONFLOW_KEY或OPENAI_API_KEY后重新启动")
+    exit(1)
+
+# 检测Telegram Bot Token是否存在
+if not os.getenv("telegram_bots"):
+    logger.error("缺失必要的Telegram Bot Token")
+    logger.error(f"请在.env.{os.getenv('ENVIRONMENT')}文件中填写TELEGRAM_BOT_TOKEN后重新启动")
     exit(1)
 
 # 获取所有环境变量
@@ -79,10 +85,12 @@ nonebot.init(**base_config, **env_config)
 
 # 注册适配器
 driver = nonebot.get_driver()
-driver.register_adapter(Adapter)
+driver.register_adapter(TelegramAdapter)
 
 # 加载插件
 nonebot.load_plugins("src/plugins")
+nonebot.load_builtin_plugins("echo")
 
 if __name__ == "__main__":
+    print("啟動 nonebot...")
     nonebot.run()

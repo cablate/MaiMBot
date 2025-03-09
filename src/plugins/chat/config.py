@@ -1,6 +1,6 @@
 import os
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from typing import Dict, Optional, Set, Union
 
 import tomli
 from loguru import logger
@@ -12,22 +12,25 @@ class BotConfig:
     BOT_QQ: Optional[int] = 1
     BOT_NICKNAME: Optional[str] = None
     
-    # 消息处理相关配置
-    MIN_TEXT_LENGTH: int = 2  # 最小处理文本长度
-    MAX_CONTEXT_SIZE: int = 15  # 上下文最大消息数
-    emoji_chance: float = 0.2  # 发送表情包的基础概率
+    # 平臺識別
+    PLATFORM: str = "telegram"  # 平臺類型: "telegram" 或 "qq"
     
-    ENABLE_PIC_TRANSLATE: bool = True  # 是否启用图片翻译
+    # 消息處理相關配置
+    MIN_TEXT_LENGTH: int = 2  # 最小處理文本長度
+    MAX_CONTEXT_SIZE: int = 15  # 上下文最大消息數
+    emoji_chance: float = 0.2  # 發送表情包的基礎概率
     
-    talk_allowed_groups = set()
-    talk_frequency_down_groups = set()
-    thinking_timeout: int = 100  # 思考时间
+    ENABLE_PIC_TRANSLATE: bool = True  # 是否啟用圖片翻譯
+    
+    talk_allowed_groups: Set[Union[int, str]] = field(default_factory=set)  # 支持數字(QQ)或字符串(Telegram)
+    talk_frequency_down_groups: Set[Union[int, str]] = field(default_factory=set)
+    thinking_timeout: int = 100  # 思考時間
     
     response_willing_amplifier: float = 1.0  # 回复意愿放大系数
     response_interested_rate_amplifier: float = 1.0  # 回复兴趣度放大系数
     down_frequency_rate: float = 3.5  # 降低回复频率的群组回复意愿降低系数
     
-    ban_user_id = set()
+    ban_user_id: Set[Union[int, str]] = field(default_factory=set)  # 支持數字(QQ)或字符串(Telegram)
     
     build_memory_interval: int = 30  # 记忆构建间隔（秒）
     forget_memory_interval: int = 300  # 记忆遗忘间隔（秒）
@@ -37,7 +40,7 @@ class BotConfig:
     EMOJI_CHECK: bool = False #是否开启过滤
     EMOJI_CHECK_PROMPT: str = "符合公序良俗" # 表情包过滤要求
 
-    ban_words = set()
+    ban_words: Set[str] = field(default_factory=set)
 
     max_response_length: int = 1024  # 最大回复长度
     
@@ -99,6 +102,11 @@ class BotConfig:
                     logger.critical(f"配置文件bot_config.toml填写有误，请检查第{e.lineno}行第{e.colno}处：{e.msg}")
                     exit(1)
             
+            # 平臺配置
+            if "platform" in toml_dict:
+                platform_config = toml_dict["platform"]
+                config.PLATFORM = platform_config.get("type", config.PLATFORM)
+                
             if 'personality' in toml_dict:
                 personality_config=toml_dict['personality']
                 personality=personality_config.get('prompt_personality')
@@ -127,7 +135,8 @@ class BotConfig:
             if "bot" in toml_dict:
                 bot_config = toml_dict["bot"]
                 bot_qq = bot_config.get("qq")
-                config.BOT_QQ = int(bot_qq)
+                if bot_qq:
+                    config.BOT_QQ = int(bot_qq)
                 config.BOT_NICKNAME = bot_config.get("nickname", config.BOT_NICKNAME)
                 
             if "response" in toml_dict:
@@ -197,9 +206,53 @@ class BotConfig:
             # 群组配置
             if "groups" in toml_dict:
                 groups_config = toml_dict["groups"]
-                config.talk_allowed_groups = set(groups_config.get("talk_allowed", []))
-                config.talk_frequency_down_groups = set(groups_config.get("talk_frequency_down", []))
-                config.ban_user_id = set(groups_config.get("ban_user_id", []))
+                
+                # 處理允許的群組 - 支持 int 和 str 類型
+                print(f"允許的群組: {groups_config.get('talk_allowed', [])}")
+                allowed_groups = groups_config.get("talk_allowed", [])
+                config.talk_allowed_groups = set()
+                for group in allowed_groups:
+                    try:
+                        if isinstance(group, int):
+                            config.talk_allowed_groups.add(group)
+                        else:
+                            # 嘗試轉換為整數 (QQ群號)，如果失敗則保留為字符串 (Telegram群ID)
+                            try:
+                                config.talk_allowed_groups.add(int(group))
+                            except (ValueError, TypeError):
+                                config.talk_allowed_groups.add(group)
+                    except Exception as e:
+                        logger.warning(f"群組ID格式錯誤: {group}, {e}")
+                
+                # 處理降頻群組
+                freq_down_groups = groups_config.get("talk_frequency_down", [])
+                config.talk_frequency_down_groups = set()
+                for group in freq_down_groups:
+                    try:
+                        if isinstance(group, int):
+                            config.talk_frequency_down_groups.add(group)
+                        else:
+                            try:
+                                config.talk_frequency_down_groups.add(int(group))
+                            except (ValueError, TypeError):
+                                config.talk_frequency_down_groups.add(group)
+                    except Exception as e:
+                        logger.warning(f"群組ID格式錯誤: {group}, {e}")
+                
+                # 處理屏蔽用戶
+                ban_users = groups_config.get("ban_user_id", [])
+                config.ban_user_id = set()
+                for user in ban_users:
+                    try:
+                        if isinstance(user, int):
+                            config.ban_user_id.add(user)
+                        else:
+                            try:
+                                config.ban_user_id.add(int(user))
+                            except (ValueError, TypeError):
+                                config.ban_user_id.add(user)
+                    except Exception as e:
+                        logger.warning(f"用戶ID格式錯誤: {user}, {e}")
             
             if "others" in toml_dict:
                 others_config = toml_dict["others"]

@@ -2,6 +2,7 @@ import base64
 import html
 import os
 import time
+import ssl
 from dataclasses import dataclass
 from typing import Dict, Optional
 
@@ -11,7 +12,6 @@ import requests
 # 包含CQ码类
 import urllib3
 from nonebot import get_driver
-from urllib3.util import create_urllib3_context
 
 from ..models.utils_model import LLM_request
 from .config import global_config
@@ -22,8 +22,8 @@ from .utils_user import get_user_nickname
 driver = get_driver()
 config = driver.config
 
-# TLS1.3特殊处理 https://github.com/psf/requests/issues/6616
-ctx = create_urllib3_context()
+# 使用原生 ssl 創建上下文，替換 create_urllib3_context
+ctx = ssl.create_default_context()
 ctx.load_default_certs()
 ctx.set_ciphers("AES128-GCM-SHA256")
 
@@ -34,9 +34,11 @@ class TencentSSLAdapter(requests.adapters.HTTPAdapter):
         super().__init__(**kwargs)
 
     def init_poolmanager(self, connections, maxsize, block=False):
+        # 使用提供的 SSL 上下文或默認的
+        context = self.ssl_context or ctx
         self.poolmanager = urllib3.poolmanager.PoolManager(
             num_pools=connections, maxsize=maxsize,
-            block=block, ssl_context=self.ssl_context)
+            block=block, ssl_context=context)
 
 
 @dataclass
