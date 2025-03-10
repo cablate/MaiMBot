@@ -1,16 +1,35 @@
+# 使用须知
+
 本分支的 main base 版本：
 Commit: e304dd7e5cf2ca131ccfd47dba14fee221fc1e9c
-Sun Mar 09 2025 10:36:19 GMT+0800 (台北標準時間)
+Sun Mar 09 2025 10:36:19 GMT+0800 (台北标准时间)
 
-由於程式原架構多平台兼容不易，本專案已經高度修改成與 QQ 平台不相容！
+由于程式原架构多平台兼容不易，本专案已经高度修改成与 QQ 平台不相容！
 
-未來也不會再合併任何 SengokuCola/MaiMBot 的改動，因為程式碼無法相容！
+未来也不会再合併任何 SengokuCola/MaiMBot 的改动，因为程式码无法相容！
 
-SengokuCola/MaiMBot 未來會調整專案架構，並使其可以相容多社群平台。
+SengokuCola/MaiMBot 未来会调整专案架构，并使其可以相容多社群平台。
 
-本專案僅作為這段期間內可以在 Telegram 或其他平台架設使用，並不主力提供任何核心相關功能的持續性維護與更新。
+本专案仅作为这段期间内可以在 Telegram 或 Discord 架设使用，并不主力提供任何核心相关功能的持续性维护与更新。
 
-所有安裝方式皆與 SengokuCola/MaiMBot 相同，請在 env 與 bot_config 設定模型與社群平台相關參數。
+目前只支援纯文字讯息！只支援纯文字讯息！只支援纯文字讯息！
+
+所有安装方式皆与 SengokuCola/MaiMBot 相同，请在 env 与 bot_config 设定模型与社群平台相关参数。
+
+## Telegram
+
+Bot 需要关闭 Private 模式，不然收不到对话讯息
+
+## Discord
+
+建立 Bot 和拉群就不多解释了。
+
+你有可能会遇到启动之后，在频道发送讯息，机器人也有接收到，但讯息内容 (content) 为空的情况。
+1. Discord 开发者设定页到你的 Bot 选项
+2. 找到 Privileged Gateway Intents
+3. MESSAGE CONTENT INTENT 打开
+4. 重启机器人，在频道发送讯息，应该就有讯息内容了
+
 
 # 麦麦！MaiMBot (编辑中)
 

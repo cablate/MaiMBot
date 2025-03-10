@@ -36,6 +36,9 @@ class Message:
 
     reply_message: Dict = None  # 存储 回复的 源消息
 
+    # 消息来源平台
+    source_platform: str = "telegram"  # 默认为telegram，可以是"discord"
+
     # 延迟初始化字段
     _initialized: bool = False
     message_segments: List[Dict] = None  # 存储解析后的消息片段
@@ -59,12 +62,23 @@ class Message:
 
         # 消息解析
         if self.raw_message:
-            if not isinstance(self,Message_Sending):
-                self.message_segments = await self.parse_message_segments(self.raw_message)
-                self.processed_plain_text = ' '.join(
-                    seg.translated_plain_text
-                    for seg in self.message_segments
-                )
+            if not isinstance(self, Message_Sending):
+                if self.source_platform == "discord":
+                    # Discord消息不需要解析CQ码
+                    self.processed_plain_text = self.raw_message
+                else:
+                    # Telegram消息需要解析CQ码
+                    try:
+                        self.message_segments = await self.parse_message_segments(self.raw_message)
+                        self.processed_plain_text = ' '.join(
+                            seg.translated_plain_text
+                            for seg in self.message_segments
+                        )
+                    except Exception as e:
+                        # 如果解析出错，直接使用原始消息
+                        from loguru import logger
+                        logger.error(f"解析消息段错误: {e}，使用原始消息")
+                        self.processed_plain_text = self.raw_message
 
         # 构建详细文本
         if self.time is None:

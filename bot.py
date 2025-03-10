@@ -4,6 +4,7 @@ import nonebot
 from dotenv import load_dotenv
 from loguru import logger
 from nonebot.adapters.telegram import Adapter as TelegramAdapter
+from nonebot.adapters.discord import Adapter as DiscordAdapter
 
 '''彩蛋'''
 from colorama import Fore, init
@@ -64,11 +65,20 @@ if not os.getenv("DEEP_SEEK_KEY") and not os.getenv("SILICONFLOW_KEY") and not o
     logger.error(f"请至少在.env.{os.getenv('ENVIRONMENT')}文件中填写DEEP_SEEK_KEY、SILICONFLOW_KEY或OPENAI_API_KEY后重新启动")
     exit(1)
 
-# 检测Telegram Bot Token是否存在
-if not os.getenv("telegram_bots"):
-    logger.error("缺失必要的Telegram Bot Token")
-    logger.error(f"请在.env.{os.getenv('ENVIRONMENT')}文件中填写TELEGRAM_BOT_TOKEN后重新启动")
-    exit(1)
+# 获取平台类型
+platform_type = os.getenv("PLATFORM_TYPE", "discord").lower()
+
+# 检查Token是否存在
+if platform_type == "telegram":
+    if not os.getenv("telegram_bots"):
+        logger.error("缺失必要的Telegram Bot Token")
+        logger.error(f"请在.env.{os.getenv('ENVIRONMENT')}文件中填写TELEGRAM_BOTS后重新启动")
+        exit(1)
+elif platform_type == "discord":
+    if not os.getenv("DISCORD_BOTS"):
+        logger.error("缺失必要的Discord Bot Token")
+        logger.error(f"请在.env.{os.getenv('ENVIRONMENT')}文件中填写DISCORD_BOTS后重新启动")
+        exit(1)
 
 # 获取所有环境变量
 env_config = {key: os.getenv(key) for key in os.environ}
@@ -85,12 +95,20 @@ nonebot.init(**base_config, **env_config)
 
 # 注册适配器
 driver = nonebot.get_driver()
-driver.register_adapter(TelegramAdapter)
+if platform_type == "telegram":
+    logger.info("注册Telegram适配器")
+    driver.register_adapter(TelegramAdapter)
+elif platform_type == "discord":
+    logger.info("注册Discord适配器")
+    driver.register_adapter(DiscordAdapter)
+else:
+    logger.warning(f"未知的平台类型 {platform_type}，默认注册Telegram适配器")
+    driver.register_adapter(TelegramAdapter)
 
 # 加载插件
 nonebot.load_plugins("src/plugins")
 nonebot.load_builtin_plugins("echo")
 
 if __name__ == "__main__":
-    print("啟動 nonebot...")
+    print(f"啟動 nonebot...平台類型: {platform_type}")
     nonebot.run()

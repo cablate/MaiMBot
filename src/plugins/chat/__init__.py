@@ -9,6 +9,10 @@ from nonebot import get_driver, on_command, on_message, require
 from nonebot.adapters.telegram import Bot as TelegramBot
 from nonebot.adapters.telegram import Message as TelegramMessage
 from nonebot.adapters.telegram.event import MessageEvent as TelegramMessageEvent
+# 導入 Discord 適配器
+from nonebot.adapters.discord import Bot as DiscordBot
+from nonebot.adapters.discord import Message as DiscordMessage
+from nonebot.adapters.discord.event import MessageEvent as DiscordMessageEvent
 from nonebot.rule import to_me
 from nonebot.typing import T_State
 
@@ -58,6 +62,8 @@ print(f"\033[1;32m正在唤醒{global_config.BOT_NICKNAME}......\033[0m")
 chat_bot = ChatBot()
 # 註冊群消息處理器 (Telegram)
 telegram_group_msg = on_message(priority=5)
+# 註冊Discord消息處理器
+discord_group_msg = on_message(priority=5)
 # 創建定時任務
 scheduler = require("nonebot_plugin_apscheduler").scheduler
 
@@ -89,13 +95,13 @@ async def init_relationships():
 
 @driver.on_bot_connect
 async def _(bot: TelegramBot):
-    """Bot連接成功時的處理"""
+    """Telegram Bot連接成功時的處理"""
     global _message_manager_started
-    print(f"\033[1;38;5;208m-----------{global_config.BOT_NICKNAME}成功連接！-----------\033[0m")
+    print(f"\033[1;38;5;208m-----------{global_config.BOT_NICKNAME} Telegram成功連接！-----------\033[0m")
     await willing_manager.ensure_started()
     
     message_sender.set_bot(bot)
-    print("\033[1;38;5;208m-----------消息發送器已啟動！-----------\033[0m")
+    print("\033[1;38;5;208m-----------Telegram消息發送器已啟動！-----------\033[0m")
     
     if not _message_manager_started:
         asyncio.create_task(message_manager.start_processor())
@@ -104,6 +110,21 @@ async def _(bot: TelegramBot):
     
     asyncio.create_task(emoji_manager._periodic_scan(interval_MINS=global_config.EMOJI_REGISTER_INTERVAL))
     print("\033[1;38;5;208m-----------開始偷表情包！-----------\033[0m")
+
+@driver.on_bot_connect
+async def discord_bot_connect(bot: DiscordBot):
+    """Discord Bot連接成功時的處理"""
+    global _message_manager_started
+    print(f"\033[1;38;5;208m-----------{global_config.BOT_NICKNAME} Discord成功連接！-----------\033[0m")
+    await willing_manager.ensure_started()
+    
+    message_sender.set_bot(bot)
+    print("\033[1;38;5;208m-----------Discord消息發送器已啟動！-----------\033[0m")
+    
+    if not _message_manager_started:
+        asyncio.create_task(message_manager.start_processor())
+        _message_manager_started = True
+        print("\033[1;38;5;208m-----------消息處理器已啟動！-----------\033[0m")
     
 # Telegram消息處理器
 @telegram_group_msg.handle()
@@ -113,7 +134,7 @@ async def handle_telegram_message(bot: TelegramBot, event: TelegramMessageEvent,
     if hasattr(event, "chat"):
         group_id = event.chat.id
         user_id = event.from_.id
-        print(f"\033[1;33m[調試信息]\033[0m 收到來自群組 ID: {group_id}, 用戶 ID: {user_id} 的消息")
+        print(f"\033[1;33m[調試信息]\033[0m 收到來自Telegram群組 ID: {group_id}, 用戶 ID: {user_id} 的消息")
         print(f"\033[1;33m[調試信息]\033[0m 允許的群組列表: {global_config.talk_allowed_groups}")
     
     # 轉換Telegram消息格式為內部格式
@@ -122,6 +143,30 @@ async def handle_telegram_message(bot: TelegramBot, event: TelegramMessageEvent,
         await chat_bot.handle_message(message_obj, bot)
     else:
         print(f"\033[1;31m[調試信息]\033[0m 消息被過濾，無法創建內部消息對象")
+
+# Discord消息處理器
+@discord_group_msg.handle()
+async def handle_discord_message(bot: DiscordBot, event: DiscordMessageEvent, state: T_State):
+    """處理Discord消息"""
+    # 如果是機器人發送的消息，直接忽略
+    if event.get_user_id() == bot.self_id:
+        return
+    
+    print(f"\033[1;34m[完整事件信息]\033[0m {event}")
+        
+    # 輸出調試信息
+    guild_id = event.guild_id
+    channel_id = event.channel_id
+    user_id = event.get_user_id()
+    print(f"\033[1;33m[調試信息]\033[0m 收到來自Discord服務器 ID: {guild_id}, 頻道 ID: {channel_id}, 用戶 ID: {user_id} 的消息")
+    print(f"\033[1;33m[調試信息]\033[0m 允許的群組列表: {global_config.talk_allowed_groups}")
+    
+    # 轉換Discord消息格式為內部格式
+    message_obj = await create_discord_internal_message(bot, event)
+    if message_obj:
+        await chat_bot.handle_message(message_obj, bot)
+    else:
+        print(f"\033[1;31m[調試信息]\033[0m Discord消息被過濾，無法創建內部消息對象")
 
 async def create_internal_message(bot: TelegramBot, event: TelegramMessageEvent):
     """創建內部消息對象
@@ -179,7 +224,7 @@ async def create_internal_message(bot: TelegramBot, event: TelegramMessageEvent)
     elif hasattr(event, "message") and event.message:
         message_text = str(event.message)
     
-    # 創建內部消息對象
+    # 創建內部消息對象，明确指定来源平台
     message = Message(
         group_id=group_id,
         user_id=user_id,
@@ -188,7 +233,96 @@ async def create_internal_message(bot: TelegramBot, event: TelegramMessageEvent)
         raw_message=message_text,
         plain_text=message_text,
         reply_message=event.reply_to_message.message_id if event.reply_to_message else None,
-        group_name=group_name
+        group_name=group_name,
+        source_platform="telegram"  # 明确指定来源平台
+    )
+    await message.initialize()
+    
+    return message
+
+async def create_discord_internal_message(bot: DiscordBot, event: DiscordMessageEvent):
+    """創建Discord內部消息對象
+    
+    Args:
+        bot: Discord 機器人實例
+        event: Discord 消息事件
+        
+    Returns:
+        Message: 內部消息對象，如果不符合處理條件則返回 None
+    """
+    # 導入消息類
+    from .message import Message
+    
+    # 獲取消息資訊
+    guild_id = event.guild_id  # Discord服务器ID
+    channel_id = event.channel_id  # Discord频道ID
+    user_id = event.get_user_id()  # 用户ID
+    message_id = event.message_id  # 消息ID
+    
+    # 用channel_id作為群組ID，因為Discord中消息是基於頻道的
+    group_id = channel_id
+    
+    # 檢查頻道是否在允許的群組列表中
+    if str(group_id) not in global_config.talk_allowed_groups and group_id not in global_config.talk_allowed_groups:
+        logger.debug(f"Discord頻道 {group_id} 不在允許列表中，忽略消息")
+        return None
+    
+    # 檢查用戶是否被封禁
+    if str(user_id) in global_config.ban_user_id or user_id in global_config.ban_user_id:
+        logger.debug(f"用戶 {user_id} 在封禁列表中，忽略消息")
+        return None
+    
+    # 獲取發送者資訊
+    user_nickname = str(user_id)  # 使用用户ID作为昵称的基础
+    user_cardname = str(user_id)  # 使用用户ID作为群昵称
+    group_name = f"Discord頻道 {channel_id}"
+    
+    # 嘗試獲取更多用戶信息
+    try:
+        # 獲取Discord服務器和頻道名稱
+        guild_info = await bot.get_guild(guild_id=guild_id)
+        channel_info = await bot.get_channel(channel_id=channel_id)
+        
+        # 使用getattr获取对象属性，而不是使用get方法
+        guild_name = getattr(guild_info, "name", "未知服務器")
+        channel_name = getattr(channel_info, "name", "未知頻道")
+        group_name = f"{guild_name} - {channel_name}"
+        
+        # 獲取用戶信息
+        member_info = await bot.get_guild_member(guild_id=guild_id, user_id=user_id)
+        if member_info:
+            # 同样使用getattr获取对象属性
+            if hasattr(member_info, "nick") and member_info.nick:
+                user_nickname = member_info.nick
+            elif hasattr(member_info, "user") and hasattr(member_info.user, "username"):
+                user_nickname = member_info.user.username
+            user_cardname = user_nickname
+    except Exception as e:
+        logger.error(f"獲取Discord信息出錯: {e}")
+    
+    # 獲取消息文本內容
+    message_text = event.get_message()
+    if not isinstance(message_text, str):
+        # 如果返回的不是字符串，尝试转换为字符串
+        message_text = str(message_text)
+    
+    # 獲取回復消息ID
+    reply_message_id = None
+    if hasattr(event, "referenced_message") and event.referenced_message:
+        reply_message_id = event.referenced_message.id
+    
+    # 創建內部消息對象，添加source_platform标识为discord
+    message = Message(
+        group_id=group_id,
+        user_id=user_id,
+        message_id=message_id,
+        user_cardname=user_cardname,
+        user_nickname=user_nickname,
+        raw_message=message_text,
+        plain_text=message_text,
+        reply_message=reply_message_id,
+        group_name=group_name,
+        source_platform="discord"  # 添加平台标识
     )
     await message.initialize()
     

@@ -1,6 +1,6 @@
-# 平台配置
+# 平台配置 請到 .env.prod 配置平台
 [platform]
-type = "telegram" # "telegram" 或 "qq"
+type = "qq"
 
 [bot]
 qq = 123
@@ -63,7 +63,9 @@ enable_kuuki_read = true # 是否启用读空气功能
 talk_allowed = [
     123,
     123,
-    "-123456" #(Telegram群ID為數字或帶有'-'開頭的字符串)
+    -123456 # Telegram群ID
+    1234567 # Discord 頻道 ID 可以先空著，等啟動之後在有麥麥的群組隨便送個訊息，從 log 裡面複製就好
+
 ]  #可以回复消息的群
 talk_frequency_down = []  #降低回复频率的群
 ban_user_id = []  #禁止回复消息的QQ号
